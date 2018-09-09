@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 
+import sys
+
 import click
 
 from core import grabstats
 
+
+def is_valid_date(date):
+    if len(date.split('-')) == 3 or len(date.split('-')) == 2:
+        return True
+    return False
 
 @click.command()
 @click.option(
@@ -20,6 +27,10 @@ from core import grabstats
 )
 @click.argument('date')
 def main(date, basic, adv):
+    if not is_valid_date(date):
+        print('Error: Invalid date argument; must be YYYY-MM-DD or YYYY-MM')
+        print('Exiting ...')
+        sys.exit(1)
     grabstats(date, basic, adv)
 
 

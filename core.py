@@ -1,9 +1,9 @@
 import os
 
+import arrow
 import requests
 import yaml
 from lxml import html
-from dateutil import parser
 
 import numpy as np
 import pandas as pd
@@ -14,9 +14,12 @@ with open('teams.yaml', 'r') as f:
 
 def get_monthly_schedule(year, month):
     """
-    year: a string, e.g. 2018
-    month: a string, e.g. january
+    :param year: a string, e.g. 2018
+    :param month: a string, e.g. january
+
+    :return schedule: a pd.DataFrame containing game info for the month
     """
+
     url = f'https://www.basketball-reference.com/leagues/NBA_{year}_games-{month}.html'
     page = requests.get(url)
     tree = html.fromstring(page.content)
@@ -25,15 +28,15 @@ def get_monthly_schedule(year, month):
 
     road_team = tree.xpath('//*[@data-stat="visitor_team_name"]/a/text()')
     road_pts = tree.xpath('//*[@data-stat="visitor_pts"]/text()')
-    road_pts.pop(0)  # Remove col name
+    road_pts.pop(0)  # Remove column name
 
     home_team = tree.xpath('//*[@data-stat="home_team_name"]/a/text()')
     home_pts = tree.xpath('//*[@data-stat="home_pts"]/text()')
-    home_pts.pop(0)  # Remove col name
+    home_pts.pop(0)  # Remove column name
 
     box_score_url = tree.xpath('//*[@data-stat="box_score_text"]/a/@href')
 
-    sched = {
+    schedule = {
         'DATE':           game_date,
         'ROAD_TEAM':      road_team,
         'ROAD_PTS':       road_pts,
@@ -42,40 +45,47 @@ def get_monthly_schedule(year, month):
         'BOX_SCORE_URL':  box_score_url,
     }
 
-    sched = pd.DataFrame(sched)
-    sched['ROAD_TM'] = sched['ROAD_TEAM'].map(team_name_abbrev)
-    sched['HOME_TM'] = sched['HOME_TEAM'].map(team_name_abbrev)
-    sched = sched[['DATE', 'ROAD_TEAM', 'ROAD_TM', 'ROAD_PTS',
-                           'HOME_TEAM', 'HOME_TM', 'HOME_PTS', 'BOX_SCORE_URL']]
+    schedule = pd.DataFrame(schedule)
+    schedule['ROAD_TM'] = schedule['ROAD_TEAM'].map(team_name_abbrev)
+    schedule['HOME_TM'] = schedule['HOME_TEAM'].map(team_name_abbrev)
+    schedule = schedule[['DATE', 'ROAD_TEAM', 'ROAD_TM', 'ROAD_PTS',
+                         'HOME_TEAM', 'HOME_TM', 'HOME_PTS', 'BOX_SCORE_URL']]
 
     BBALLREF = 'https://www.basketball-reference.com'
-    sched['BOX_SCORE_URL'] = sched['BOX_SCORE_URL'].apply(lambda x: BBALLREF + x)
+    schedule['BOX_SCORE_URL'] = \
+            schedule['BOX_SCORE_URL'].apply(lambda x: BBALLREF + x)
 
     def format_date(date):
-        date = parser.parse(date)
-        return date.strftime('%Y-%m-%d')
+        return arrow.get(date, 'ddd, MMM D, YYYY').datetime.strftime('%Y-%m-%d')
 
-    sched['DATE'] = sched['DATE'].apply(format_date)
+    schedule['DATE'] = schedule['DATE'].apply(format_date)
 
-    return sched
+    return schedule
 
 
-def get_daily_schedule(date):
+def get_schedule(date):
     """
-    date: a string with format 'YYYY-MM-DD'
+    :param date: a string with format 'YYYY-MM-DD' or 'YYYY-MM'
+
+    :return schedule: a pd.DataFrame containing game info for the date,
+                      either a day or month
     """
 
-    # Get month and year from date
-    parsed_date = parser.parse(date)
-    month = parsed_date.strftime('%B').lower()  # Long name, e.g. january
-    year = parsed_date.strftime('%Y')           # E.g. 2018
+    # Get year and month from date
+    year = arrow.get(date).datetime.strftime('%Y')           # e.g. 2018
+    month = arrow.get(date).datetime.strftime('%B').lower()  # e.g. january
 
-    if month in ['october, november, december']:
+    # BBallRef takes the season year as the calendar year when the Playoffs
+    # are played; therefore, the 2017-2018 season is the 2018 season
+    if month in ['october', 'november', 'december']:
         year = str(int(year) + 1)  # Increment year
 
-    sched = get_monthly_schedule(year, month)
+    schedule = get_monthly_schedule(year, month)
 
-    return sched.query('DATE == @date').reset_index(drop=True)
+    # If year year, month, and day given in date, return daily schedule
+    if len(date.split('-')) == 3:
+        return schedule.query('DATE == @date').reset_index(drop=True)
+    return schedule  # monthly schedule
 
 
 class BoxScore:
@@ -92,18 +102,22 @@ class BoxScore:
         for row in rows:
             player = row.xpath('th/a/text()')
             stats = row.xpath('td/text()')
-            if len(stats) == 1:
+            if len(stats) == 1:  # Indicates an inactive player, e.g. DNP/Rest
                 inactive_players.append(player[0])
 
-        active_players = self.tree.xpath(self.table + '//th[@data-stat="player"]/a/text()')
+        active_players = \
+                self.tree.xpath(self.table + '//th[@data-stat="player"]/a/text()')
         for player in inactive_players:
             active_players.remove(player)
+        # Each box score has a row for team totals, which we take as an active
+        # player for now, and can remove/separate in post-processing
         active_players.append('Team Totals')
 
         return active_players, inactive_players
 
 
     def _format_time(MP):
+        """ Convert minutes played from str to int/float """
         if len(MP.split(':')) > 1:
             (m, s) = MP.split(':')
             return int(m) + int(s) / 60
@@ -183,6 +197,7 @@ def get_daily_box_scores(schedule, basic_box_score_outfile, adv_box_score_outfil
         road_basic, road_adv = get_box_scores(game_date, road_team, box_score_url)
         home_basic, home_adv = get_box_scores(game_date, home_team, box_score_url)
 
+        # BASIC BOX SCORE
         # Road team
         road_basic['DATE'] = game_date
         road_basic['OWN_TEAM'] = road_team
@@ -197,9 +212,11 @@ def get_daily_box_scores(schedule, basic_box_score_outfile, adv_box_score_outfil
 
         basic = pd.concat([road_basic, home_basic])
 
-        reordered_cols = ['DATE', 'PLAYER_NAME', 'OWN_TEAM', 'OPP_TEAM', 'VENUE', 'MP',
-                          'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', 'FT', 'FTA', 'FT%',
-                          'ORB', 'DRB', 'TRB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS', '+/-', 'USG%']
+        reordered_cols = \
+                ['DATE', 'PLAYER_NAME', 'OWN_TEAM', 'OPP_TEAM', 'VENUE', 'MP',
+                 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', 'FT', 'FTA', 'FT%',
+                 'ORB', 'DRB', 'TRB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS',
+                 '+/-', 'USG%']
         basic = basic[reordered_cols]
 
         if os.path.isfile(basic_box_score_outfile):
@@ -210,12 +227,41 @@ def get_daily_box_scores(schedule, basic_box_score_outfile, adv_box_score_outfil
         with open(basic_box_score_outfile, 'a') as f:
             basic.to_csv(f, header=header, index=False)
 
-        print(f'Grabbed {road_team} vs {home_team} box score!')
+        # ADVANCED BOX SCORE
+        # Road team
+        road_adv['DATE'] = game_date
+        road_adv['OWN_TEAM'] = road_team
+        road_adv['OPP_TEAM'] = home_team
+        road_adv['VENUE'] = 'R'
+
+        # Home team
+        home_adv['DATE'] = game_date
+        home_adv['OWN_TEAM'] = home_team
+        home_adv['OPP_TEAM'] = road_team
+        home_adv['VENUE'] = 'H'
+
+        adv = pd.concat([road_adv, home_adv])
+
+        reordered_cols = \
+                ['DATE', 'PLAYER_NAME', 'OWN_TEAM', 'OPP_TEAM', 'VENUE', 'MP',
+                 'TS%', 'eFG%', '3PAr', 'FTr', 'ORB%', 'DRB%', 'TRB%', 'AST%',
+                 'STL%', 'BLK%', 'TOV%', 'USG%', 'ORtg', 'DRtg']
+        adv = adv[reordered_cols]
+
+        if os.path.isfile(adv_box_score_outfile):
+            header = False
+        else:
+            header = True
+
+        with open(adv_box_score_outfile, 'a') as f:
+            adv.to_csv(f, header=header, index=False)
+
+        print(f'Grabbed {road_team} vs {home_team} box score for {game_date}')
     print('All done!')
 
 
 def grabstats(date, basic_box_score_outfile, adv_box_score_outfile):
-    schedule = get_daily_schedule(date)
+    schedule = get_schedule(date)
     get_daily_box_scores(
         schedule,
         basic_box_score_outfile,
