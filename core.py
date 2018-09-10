@@ -128,7 +128,7 @@ class BoxScore:
     def _get_pace(self):
         for comment in self.tree.xpath('//comment()'):
             c = str(comment)
-            if 'pace' in c:
+            if '"pace"' in c:
                 c = c.lstrip('<!--')
                 c = c.rstrip('-->')
                 c = c.strip()
