@@ -102,8 +102,10 @@ class BoxScore:
         for row in rows:
             player = row.xpath('th/a/text()')
             stats = row.xpath('td/text()')
-            if len(stats) == 1:  # Indicates an inactive player, e.g. DNP/Rest
-                inactive_players.append(player[0])
+            # Indicates an inactive player, e.g. 'Did Not Play'
+            if len(stats) == 1:
+                if all(x.isalpha() or x.isspace() for x in stats[0]):
+                    inactive_players.append(player[0])
 
         active_players = \
                 self.tree.xpath(self.table + '//th[@data-stat="player"]/a/text()')
@@ -115,7 +117,6 @@ class BoxScore:
 
         return active_players, inactive_players
 
-
     def _format_time(MP):
         """ Convert minutes played from str to int/float """
         if len(MP.split(':')) > 1:
@@ -123,6 +124,17 @@ class BoxScore:
             return int(m) + int(s) / 60
         else:
             return int(MP)
+
+    def _get_pace(self):
+        for comment in self.tree.xpath('//comment()'):
+            c = str(comment)
+            if 'pace' in c:
+                c = c.lstrip('<!--')
+                c = c.rstrip('-->')
+                c = c.strip()
+                subtree = html.fromstring(c)
+                pace = subtree.xpath('//td[@data-stat="pace"]')[0].text
+        return pace
 
 
 class BasicBoxScore(BoxScore):
@@ -145,7 +157,8 @@ class BasicBoxScore(BoxScore):
         box_score = pd.DataFrame(box_score)
         box_score.fillna(value=np.nan, inplace=True)
 
-        box_score['MP'] = box_score['MP'].apply(BasicBoxScore._format_time)
+        box_score['MP'] = box_score['MP'].apply(BoxScore._format_time)
+        box_score['PACE'] = BoxScore._get_pace(self)
 
         return box_score
 
@@ -187,7 +200,7 @@ def get_box_scores(date, team_name, url):
     return basic, adv
 
 
-def get_daily_box_scores(schedule, basic_box_score_outfile, adv_box_score_outfile):
+def get_daily_box_scores(schedule, basic_box_score_file, adv_box_score_file):
     for index, row in schedule.iterrows():
         game_date = row['DATE']
         road_team = row['ROAD_TM']
@@ -216,15 +229,15 @@ def get_daily_box_scores(schedule, basic_box_score_outfile, adv_box_score_outfil
                 ['DATE', 'PLAYER_NAME', 'OWN_TEAM', 'OPP_TEAM', 'VENUE', 'MP',
                  'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', 'FT', 'FTA', 'FT%',
                  'ORB', 'DRB', 'TRB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS',
-                 '+/-', 'USG%']
+                 '+/-', 'USG%', 'PACE']
         basic = basic[reordered_cols]
 
-        if os.path.isfile(basic_box_score_outfile):
+        if os.path.isfile(basic_box_score_file):
             header = False
         else:
             header = True
 
-        with open(basic_box_score_outfile, 'a') as f:
+        with open(basic_box_score_file, 'a') as f:
             basic.to_csv(f, header=header, index=False)
 
         # ADVANCED BOX SCORE
@@ -248,22 +261,20 @@ def get_daily_box_scores(schedule, basic_box_score_outfile, adv_box_score_outfil
                  'STL%', 'BLK%', 'TOV%', 'USG%', 'ORtg', 'DRtg']
         adv = adv[reordered_cols]
 
-        if os.path.isfile(adv_box_score_outfile):
+        if os.path.isfile(adv_box_score_file):
             header = False
         else:
             header = True
 
-        with open(adv_box_score_outfile, 'a') as f:
+        with open(adv_box_score_file, 'a') as f:
             adv.to_csv(f, header=header, index=False)
 
         print(f'Grabbed {road_team} vs {home_team} box score for {game_date}')
     print('All done!')
 
 
-def grabstats(date, basic_box_score_outfile, adv_box_score_outfile):
+def grabstats(date, basic_box_score_file, adv_box_score_file):
     schedule = get_schedule(date)
     get_daily_box_scores(
-        schedule,
-        basic_box_score_outfile,
-        adv_box_score_outfile
+        schedule, basic_box_score_file, adv_box_score_file
     )
