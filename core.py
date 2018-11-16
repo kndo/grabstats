@@ -45,7 +45,11 @@ def get_monthly_schedule(year, month):
         'BOX_SCORE_URL':  box_score_url,
     }
 
+    # Create a dictionary with different length columns (Series) that is
+    # suitable for a DataFrame
+    schedule = dict([ (k, pd.Series(v)) for k, v in schedule.items() ])
     schedule = pd.DataFrame(schedule)
+    schedule.dropna(how='any', inplace=True)
     schedule['ROAD_TM'] = schedule['ROAD_TEAM'].map(team_name_abbrev)
     schedule['HOME_TM'] = schedule['HOME_TEAM'].map(team_name_abbrev)
     schedule = schedule[['DATE', 'ROAD_TEAM', 'ROAD_TM', 'ROAD_PTS',
