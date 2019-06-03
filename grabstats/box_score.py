@@ -1,6 +1,13 @@
 """
 """
 
+import os
+
+from bs4 import BeautifulSoup
+import pandas as pd
+import requests
+
+
 def _get_data_stat(row, data_stat, is_header=False):
     if is_header:
         return row.find('th', {'data-stat': data_stat}).text
@@ -165,5 +172,13 @@ def box_scores_get_many(schedule):
 #         adv = adv[reordered_cols]
         adv_box_scores.append(adv)
 
-    print(basic_box_scores, adv_box_scores)
-    #return basic, adv
+    return basic_box_scores, adv_box_scores
+
+
+def to_csv(box_score, outfile):
+    if os.path.isfile(outfile):
+        header = False
+    header = True
+
+    with open(outfile, 'a') as f:
+        box_score.to_csv(f, header=header, index=False)

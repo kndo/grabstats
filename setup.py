@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import os
+import sys
 
 from codecs import open
 
@@ -50,11 +51,11 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
     ],
-    # entry_points={
-        # 'console_scripts': [
-            # 'grabstast = grabstats.cli:main',
-        # ],
-    # },
+    entry_points={
+        'console_scripts': [
+            'grabstats = grabstats.cli:main',
+        ],
+    },
     # cmdclass={},
     # tests_require=test_requirements,
     # extra_require={},
